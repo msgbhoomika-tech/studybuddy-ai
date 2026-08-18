@@ -10,7 +10,6 @@ import sqlite3
 import datetime
 import json
 import urllib.parse
-import re
 import time
 
 # 1. PAGE CONFIGURATION
@@ -21,7 +20,7 @@ st.set_page_config(page_title="StudyBuddy ✨", page_icon="🔮", layout="wide")
 # ----------------------------------------------------
 st.markdown("""
 <style>
-    @import url('[https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap](https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap)');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap');
     
     html, body, [class*="css"], .stApp {
         font-family: 'Plus Jakarta Sans', sans-serif;
@@ -287,7 +286,30 @@ st.sidebar.progress(xp_prog / 100)
 st.sidebar.caption(f"{xp_prog}/100 XP to Level {user_lvl + 1}")
 
 client = genai.Client(api_key=api_key)
-MODEL_NAME = "gemini-2.5-flash"
+
+# Resilient AI Engine with Automatic High-Demand / 503 Retries & Fallback
+def generate_ai_content(contents, json_mime=False):
+    models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+    config = types.GenerateContentConfig(response_mime_type="application/json") if json_mime else None
+    
+    last_error = None
+    for model_name in models:
+        for attempt in range(2):
+            try:
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+            except Exception as e:
+                err_str = str(e)
+                last_error = e
+                if "503" in err_str or "UNAVAILABLE" in err_str:
+                    time.sleep(1.5)  # brief pause for Google server traffic spike
+                    continue
+                else:
+                    break
+    raise last_error
 
 # Session States
 if "current_study_guide" not in st.session_state:
@@ -311,7 +333,7 @@ def render_mermaid(diagram_code):
         {diagram_code}
     </div>
     <script type="module">
-        import mermaid from '[https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs](https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs)';
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         mermaid.initialize({{ startOnLoad: true, theme: 'default' }});
     </script>
     """
@@ -414,7 +436,7 @@ with tab1:
                     Structure your explanation with clear key points, intuitive intuition, and exam-focused takeaways.
                     """
                     contents.append(prompt)
-                    response = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                    response = generate_ai_content(contents)
                     
                     st.session_state.current_study_guide = response.text
                     st.session_state.current_study_raw_text = text_data_1 if text_data_1 else f"{current_subject} - {current_topic}"
@@ -437,11 +459,7 @@ with tab1:
                             }}
                         ]
                         """
-                        raw_quiz = client.models.generate_content(
-                            model=MODEL_NAME,
-                            contents=quiz_prompt,
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
-                        )
+                        raw_quiz = generate_ai_content(quiz_prompt, json_mime=True)
                         st.session_state.inline_quiz_data = {
                             "subject": current_subject,
                             "topic": current_topic,
@@ -478,7 +496,7 @@ with tab1:
         ]
         
         selected_search = video_queries[st.session_state.video_query_index % len(video_queries)]
-        yt_search_url = f"[https://www.youtube.com/results?search_query=](https://www.youtube.com/results?search_query=){urllib.parse.quote(selected_search)}"
+        yt_search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(selected_search)}"
         
         col_v1, col_v2 = st.columns([3, 1])
         with col_v1:
@@ -510,7 +528,7 @@ with tab1:
                         The student asks: "{inline_query.strip()}"
                         Provide a clear, encouraging, friendly explanation with an exam pro-tip.
                         """
-                        doubt_resp = client.models.generate_content(model=MODEL_NAME, contents=doubt_prompt)
+                        doubt_resp = generate_ai_content(doubt_prompt)
                         st.session_state.inline_doubt_history.append({"q": inline_query.strip(), "a": doubt_resp.text})
                         add_xp(10)
                         st.rerun()
@@ -631,17 +649,17 @@ with tab2:
             time_display = f"{mins_left:02d}:{secs_left:02d}"
             
             if fraction_done < 0.30:
-                stage_gif = "[https://media.giphy.com/media/LmN8OYiY4m0X85al0A/giphy.gif](https://media.giphy.com/media/LmN8OYiY4m0X85al0A/giphy.gif)"
+                stage_gif = "https://media.giphy.com/media/LmN8OYiY4m0X85al0A/giphy.gif"
                 stage_badge = "🚀 STAGE 1: GETTING INTO THE FLOW"
                 stage_grad = "linear-gradient(135deg, #4c1d95 0%, #6d28d9 100%)"
                 motivation_msg = f"✨ Setting the vibe for '{target_subject_timer}'! Lock in."
             elif fraction_done < 0.80:
-                stage_gif = "[https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif](https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif)"
+                stage_gif = "https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif"
                 stage_badge = "🔥 STAGE 2: UNSTOPPABLE FLOW STATE"
                 stage_grad = "linear-gradient(135deg, #be185d 0%, #e11d48 100%)"
                 motivation_msg = "⚡ Halfway mark! You're turning tough concepts into permanent memory."
             else:
-                stage_gif = "[https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif](https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif)"
+                stage_gif = "https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif"
                 stage_badge = "⚡ STAGE 3: THE FINAL COUNTDOWN"
                 stage_grad = "linear-gradient(135deg, #047857 0%, #0d9488 100%)"
                 motivation_msg = "🏁 Almost done! Finish strong and claim your +50 XP!"
@@ -675,7 +693,7 @@ with tab2:
         st.success(f"🎉 **Sprint Completed!** You finished {focus_minutes} mins on '{target_subject_timer}'. **+50 XP** added to your profile!")
         st.markdown("""
         <div style="text-align: center; margin-top: 15px;">
-            <img src="[https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif](https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif)" style="border-radius: 20px; max-height: 220px;" />
+            <img src="https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif" style="border-radius: 20px; max-height: 220px;" />
             <h3 style="color: #c084fc; margin-top: 10px;">Hydrate, stretch for 5 minutes, and come back whenever you're ready!</h3>
         </div>
         """, unsafe_allow_html=True)
@@ -751,13 +769,16 @@ with tab3:
                         """
                         
                     contents.append(prompt)
-                    tk_res = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                    tk_res = generate_ai_content(contents)
                     
                     st.markdown("---")
-                    mermaid_match = re.search(r"```mermaid\n([\s\S]*?)\n```", tk_res.text)
-                    if mermaid_match:
-                        st.markdown("### 🎨 Interactive Mermaid Architecture")
-                        render_mermaid(mermaid_match.group(1))
+                    if "```mermaid" in tk_res.text:
+                        try:
+                            mermaid_code = tk_res.text.split("```mermaid")[1].split("```")[0].strip()
+                            st.markdown("### 🎨 Interactive Mermaid Architecture")
+                            render_mermaid(mermaid_code)
+                        except Exception:
+                            pass
                         
                     st.markdown("### 📜 Full Exam Output")
                     st.write(tk_res.text)
@@ -820,7 +841,7 @@ with tab4:
                     - 📌 Section C: 2 x 10-Mark Questions (Comprehensive with headings & diagram notes)
                     """
                     contents.append(pyq_prompt)
-                    pyq_res = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                    pyq_res = generate_ai_content(contents)
                     
                     st.markdown("---")
                     st.write(pyq_res.text)
@@ -922,7 +943,7 @@ with tab6:
                         contents.append(doubt_query.strip())
                         
                     contents.append("You are Prof. Lara. Answer with: 1) Direct explanation, 2) Simple analogy, 3) Exam tip.")
-                    response = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                    response = generate_ai_content(contents)
                     
                     st.session_state.standalone_doubt_history.append({
                         "user": doubt_query if doubt_query.strip() else "[Uploaded screenshot]",
@@ -980,7 +1001,7 @@ with tab7:
                     3. High-density cheat sheet.
                     4. What to SKIP to maximize marks.
                     """)
-                    cram_res = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                    cram_res = generate_ai_content(contents)
                     st.markdown("---")
                     st.write(cram_res.text)
                 except Exception as e:
@@ -1031,7 +1052,7 @@ with tab8:
                     3. 💡 Better Analogy
                     4. 🎯 Concept Mastery Score (out of 10)
                     """)
-                    feynman_res = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                    feynman_res = generate_ai_content(contents)
                     add_xp(30)
                     st.markdown("---")
                     st.write(feynman_res.text)
@@ -1067,7 +1088,7 @@ with tab9:
                     contents.append(audio_text)
                 
                 contents.append("You are Prof. Lara. Explain this topic enthusiastically out loud in a friendly, conversational audio lecture for a student on their commute.")
-                script_res = client.models.generate_content(model=MODEL_NAME, contents=contents)
+                script_res = generate_ai_content(contents)
                 
                 st.markdown("### 📜 Spoken Lesson Script")
                 st.write(script_res.text)
